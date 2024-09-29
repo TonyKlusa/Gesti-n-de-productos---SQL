@@ -1,0 +1,329 @@
+'''
+Desafío 1: Sistema de Gestión de Productos
+Objetivo: Desarrollar un sistema para manejar productos en un inventario.
+
+Requisitos:
+
+Crear una clase base Producto con atributos como producto, precio, cantidad en stock, etc.
+Definir al menos 2 clases derivadas para diferentes categorías de productos (por ejemplo, ProductoElectronico, ProductoAlimenticio) con atributos
+y métodos específicos.
+Implementar operaciones CRUD para gestionar productos del inventario.
+Manejar errores con bloques try-except para validar entradas y gestionar excepciones.
+Persistir los datos en archivo JSON.'''
+
+import mysql.connector
+from mysql.connector import Error
+import decouple
+from decouple import config
+
+
+class Producto:
+    def __init__(self, codigo_producto, producto, precio, cantidad_stock, marca):
+        self.__codigo_producto = self.validar_codigo_producto(codigo_producto)
+        self.__producto = producto
+        self.__precio = precio
+        self.__cantidad_stock = self.validar_cantidad_stock(cantidad_stock)
+        self.__marca = marca
+            
+    @property
+    def codigo_producto(self):
+        return self.__codigo_producto
+
+    @property
+    def producto(self):
+        return self.__producto.capitalize()
+
+    @property
+    def precio(self):
+        return self.__precio
+
+    @property
+    def cantidad_stock(self):
+        return self.__cantidad_stock
+
+    @property
+    def marca(self):
+        return self.__marca
+    
+    @cantidad_stock.setter
+    def cantidad_stock(self, nuevo_stock):
+        self.__cantidad_stock = self.validar_cantidad_stock(nuevo_stock)
+
+
+    def to_dict(self):
+        return {
+            "codigo_producto": self.codigo_producto,
+            "producto": self.producto,
+            "precio": self.precio,
+            "cantidad_stock": self.cantidad_stock,
+            "marca": self.marca
+        }
+    
+    def __str__(self):
+        return f"{self.producto} {self.codigo_producto}"
+    
+    def validar_codigo_producto(self, codigo_producto):
+        # Validar que el código sea una cadena numérica de exactamente 6 dígitos
+        if codigo_producto.isdigit() and len(codigo_producto) == 6:
+            return codigo_producto  # Devuelve el código como una cadena para preservar los ceros iniciales
+        else:
+            raise ValueError("El código del producto debe ser un número de 6 dígitos.")
+
+
+    def validar_cantidad_stock(self, cantidad_stock):
+        try:
+            cantidad_stock_num = float(cantidad_stock)
+            if cantidad_stock_num <= 0:
+                raise ValueError("El stock debe ser numérico positivo.")
+            return cantidad_stock_num
+        except ValueError:
+            raise ValueError("El stock debe ser un número válido.")
+        
+#Desarrollo las subclases que pide la consigna
+
+
+class ProductoElectronico(Producto):
+    def __init__(self, codigo_producto, producto, precio, cantidad_stock, marca, modelo):
+        super().__init__(codigo_producto, producto, precio, cantidad_stock, marca)
+        #Mapeo los atributos que agrego ala subclase
+        self.__modelo = modelo
+
+#Ej. de polimorfismo.El mismo metodo, según de donde lo ejecutemos responde de una manera u otra.
+    def to_dict(self):
+        data = super().to_dict()
+        data["marca"] = self.marca
+        return data
+
+    def __str__(self):
+        return f"{super().__str__()} - marca: {self.marca}"
+    
+    @property
+    def modelo(self):
+        return self.__modelo
+
+    def to_dict(self):
+        data = super().to_dict()
+        data["modelo"] = self.modelo
+        return data
+
+    def __str__(self):
+        return f"{super().__str__()} - modelo: {self.modelo}"
+
+class ProductoAlimenticio(Producto):
+    def __init__(self, codigo_producto, producto, precio, cantidad_stock, marca, peso):
+        super().__init__(codigo_producto, producto, precio, cantidad_stock, marca)
+        #Mapeo los atributos que agrego ala subclase
+        self.__peso = peso
+
+    @property
+    def peso(self):
+        return self.__peso
+
+    def to_dict(self):
+        data = super().to_dict()
+        data["peso"] = self.peso
+        return data
+
+    def __str__(self):
+        return f"{super().__str__()} - peso: {self.peso}"
+
+class GestionProductos:
+    def __init__(self):
+        self.host = config('DB_HOST')
+        self.database = config('DB_DATABASE')
+        self.usuario = config('DB_USER')
+        self.password =config('DB_PASSWORD')
+        self.port = config('DB_PORT')
+    
+    def connect(self):
+        '''Establecer una conexión con la base de datos'''
+        try:
+            connection = mysql.connector.connect(
+                host=self.host,
+                database=self.database,
+                user=self.usuario,  
+                password=self.password,
+                port=self.port
+                )
+            if connection.is_connected():
+                return connection
+        except Error as e:
+            print(f'Error al conectar a la BD') #acá podria hacer un manejo de errores
+            return None
+
+    #Para crear producto
+    def crear_producto(self, producto):
+        try:
+            # Verificar si el producto ya existe
+            producto_existente = self.buscar_producto(producto.codigo_producto)
+            if producto_existente:
+                print(f'Error: Ya existe un producto con el código {producto.codigo_producto}.')
+                return
+
+            connection = self.connect()
+            if connection:
+                with connection.cursor() as cursor:
+                    # Insertar producto en la tabla productos
+                    query_producto = '''
+                        INSERT INTO productos (codigo_producto, producto, precio, cantidad_stock, marca)
+                        VALUES (%s, %s, %s, %s, %s)
+                    '''
+                    cursor.execute(query_producto, (producto.codigo_producto, producto.producto, producto.precio, producto.cantidad_stock, producto.marca))
+
+                    # Insertar producto dependiendo del tipo
+                    if isinstance(producto, ProductoAlimenticio):
+                        query_alimenticio = '''
+                            INSERT INTO productosalimenticios (codigo_producto, peso)
+                            VALUES (%s, %s)
+                        '''
+                        cursor.execute(query_alimenticio, (producto.codigo_producto, producto.peso))
+                    elif isinstance(producto, ProductoElectronico):
+                        query_electronico = '''
+                            INSERT INTO productoselectronicos (codigo_producto, modelo)
+                            VALUES (%s, %s)
+                        '''
+                        cursor.execute(query_electronico, (producto.codigo_producto, producto.modelo))
+                    else:
+                        print('Error: Tipo de producto no válido.')
+                        return
+                    
+                    connection.commit()
+                    print(f'Producto {producto.producto} creado correctamente')
+        except Exception as error:
+            print(f'Error inesperado al crear producto: {error}')
+        finally:
+            if connection and connection.is_connected():
+                connection.close()
+                print("La conexión MySQL ha sido cerrada.")
+    
+    def actualizar_producto(self, codigo_producto, actualiza_cantidad_stock):
+        try:
+            connection = self.connect()
+            if connection:
+                with connection.cursor() as cursor:
+                    # Verificar si el código del producto existe
+                    cursor.execute('SELECT producto FROM productos WHERE codigo_producto = %s', (codigo_producto,))
+                    producto = cursor.fetchone()
+
+                    if producto:
+                        # Validar el nuevo valor de stock
+                        if not isinstance(actualiza_cantidad_stock, int) or actualiza_cantidad_stock < 0:
+                            print('Error: La cantidad de stock debe ser un número entero positivo.')
+                            return
+
+                        # Actualizar el stock del producto
+                        cursor.execute('UPDATE productos SET cantidad_stock = %s WHERE codigo_producto = %s',
+                                    (actualiza_cantidad_stock, codigo_producto))
+                        connection.commit()
+                        print(f'Stock actualizado para el producto {producto[0]} con código {codigo_producto}')
+                    else:
+                        print(f'No se encontró producto con código: {codigo_producto}')
+        except Exception as e:
+            print(f'Error al actualizar el producto: {e}')
+       
+    def eliminar_producto(self, codigo_producto):
+        try:
+            connection = self.connect()
+            if connection:
+                with connection.cursor() as cursor:
+                    # Verificar si el producto existe
+                    cursor.execute('SELECT producto FROM productos WHERE codigo_producto = %s', (codigo_producto,))
+                    producto = cursor.fetchone()
+
+                    if producto:
+                        # Eliminar registros relacionados en productoselectronicos y productosalimenticios
+                        cursor.execute('DELETE FROM productoselectronicos WHERE codigo_producto = %s', (codigo_producto,))
+                        cursor.execute('DELETE FROM productosalimenticios WHERE codigo_producto = %s', (codigo_producto,))
+                        connection.commit()
+                        # Eliminar el producto de la tabla productos
+                        cursor.execute('DELETE FROM productos WHERE codigo_producto = %s', (codigo_producto,))
+                        connection.commit()
+                        print(f'Producto {producto[0]} con código {codigo_producto} eliminado correctamente.')
+                    else:
+                        print(f'No se encontró producto con código: {codigo_producto}')
+
+        except Exception as error:
+            print(f'Error inesperado al eliminar producto: {error}')
+
+    def leer_datos(self, codigo_producto):
+        try:
+            connection = self.connect()
+            if connection:
+                with connection.cursor() as cursor:
+                    # Verificar si el codigo ya existe
+                    cursor.execute('SELECT producto FROM productos WHERE codigo_producto = %s', (codigo_producto,))
+                    if cursor.fetchone():
+                        print(f' Datos leidos con éxito. Producto {producto.producto} encontrado')
+                        input('Presione enter para continuar...')
+                        return
+           
+        except Exception as error:
+            raise Exception(f'Error al leer datos del {self.archivo}: {error}')
+        #Si sale todo bien, retorna los datos
+        finally:
+            if connection.is_connected:
+                connection.close()
+          
+
+
+        pass
+   
+    def buscar_producto(self, codigo_producto):
+        try:
+            connection = self.connect()
+            if connection:
+                with connection.cursor() as cursor:
+                    # Buscar el producto por su código
+                    cursor.execute('SELECT producto, cantidad_stock FROM productos WHERE codigo_producto = %s', (codigo_producto,))
+                    producto = cursor.fetchone()
+                    return producto
+        except Exception as error:
+            print(f'Error al buscar producto: {error}')
+            return None
+        finally:
+            if connection and connection.is_connected():
+                connection.close()
+
+    def leer_todos_los_productos(self):
+        try:
+            connection = self.connect()
+            if connection:
+                with connection.cursor(dictionary=True) as cursor:
+                    # Obtener todos los productos
+                    cursor.execute('SELECT * FROM productos')
+                    productos_data = cursor.fetchall()
+                    
+                    productos = []
+                    
+                    for producto_data in productos_data:
+                        codigo_producto = producto_data['codigo_producto']
+                        
+                        # Buscar si es un producto electrónico
+                        cursor.execute('SELECT modelo FROM productoselectronicos WHERE codigo_producto = %s', (codigo_producto,))
+                        modelo = cursor.fetchone()
+                        
+                        if modelo:
+                            producto_data['modelo'] = modelo['modelo']
+                            producto = ProductoElectronico(**producto_data)
+                        else:
+                            # Buscar si es un producto alimenticio
+                            cursor.execute('SELECT peso FROM productosalimenticios WHERE codigo_producto = %s', (codigo_producto,))
+                            peso = cursor.fetchone()
+                            if peso:
+                                producto_data['peso'] = peso['peso']
+                                producto = ProductoAlimenticio(**producto_data)
+                            else:
+                                continue
+                            
+                        productos.append(producto)
+                    
+                    return productos
+        except Exception as error:
+            print(f'Error inesperado al leer productos: {error}')
+        finally:
+            if connection and connection.is_connected():
+                connection.close()
+                print("La conexión MySQL ha sido cerrada.")
+
+        
+
